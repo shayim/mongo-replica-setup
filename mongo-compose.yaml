@@ -8,52 +8,36 @@ services:
     container_name: mongo-2.mongo
     image: mongo
     entrypoint:
-      [
-        '/usr/bin/mongod',
-        '--keyFile',
-        '/data/file.key',
-        '--replSet',
-        'rs',
-        '--journal',
-        '--bind_ip_all'
-      ]
+      ['/usr/bin/mongod', '--replSet', 'rs', '--journal', '--bind_ip_all']
     ports:
       - '27018:27017'
     restart: always
     networks:
       - mongo-net
-    volumes:
-      - './scripts/file.key:/data/file.key'
 
   mongo-1.mongo:
     hostname: mongo-1.mongo
     container_name: mongo-1.mongo
     image: mongo
     entrypoint:
-      [
-        '/usr/bin/mongod',
-        '--keyFile',
-        '/data/file.key',
-        '--replSet',
-        'rs',
-        '--journal',
-        '--bind_ip_all'
-      ]
+      ['/usr/bin/mongod', '--replSet', 'rs', '--journal', '--bind_ip_all']
     ports:
       - '27019:27017'
     restart: always
     networks:
       - mongo-net
-    volumes:
-      - './scripts/file.key:/data/file.key'
 
   mongo-0.mongo:
     hostname: mongo-0.mongo
     container_name: mongo-0.mongo
     image: mongo
-    command: bash -c "/usr/bin/mongod --keyFile /data/file.key --replSet rs --journal --bind_ip_all"
+    entrypoint:
+      ['/usr/bin/mongod', '--replSet', 'rs', '--journal', '--bind_ip_all']
     ports:
       - '27017:27017'
+    depends_on:
+      - mongo-1.mongo
+      - mongo-2.mongo
     links:
       - mongo-1.mongo:mongo-1.mongo
       - mongo-2.mongo:mongo-2.mongo
@@ -62,4 +46,40 @@ services:
       - mongo-net
     volumes:
       - './scripts/setup.sh:/scripts/setup.sh'
-      - './scripts/file.key:/data/file.key'
+
+  mongo-replica-init:
+    image: mongo
+    restart: on-failure
+    depends_on:
+      - mongo-0.mongo
+      - mongo-1.mongo
+      - mongo-2.mongo
+    networks:
+      - mongo-net
+    command: >
+      mongosh --host mongo-0.mongo:27017 --eval
+      '
+      var cfg = {
+        "_id": "rs",
+        "version": 1,
+        "members": [
+            {
+                "_id": 0,
+                "host": "mongo-0.mongo:27017",
+                "priority": 2
+            },
+            {
+                "_id": 1,
+                "host": "mongo-1.mongo:27017",
+                "priority": 0
+            },
+            {
+                "_id": 2,
+                "host": "mongo-2.mongo:27017",
+                "priority": 0
+            }
+        ]
+      };
+      rs.initiate(cfg, { force: true });
+      rs.status();
+      '
